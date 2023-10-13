@@ -1,5 +1,10 @@
+from dotenv import load_dotenv
 import openai
-openai.api_key = "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"
+import os
+
+load_dotenv()
+
+openai.api_key = os.getenv("API_KEY")
 response = openai.Completion.create(
   engine="text-davinci-002",
   prompt="say hey Sox or ask a question: '{}'",
