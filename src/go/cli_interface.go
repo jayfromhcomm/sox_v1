@@ -1,87 +1,132 @@
-package main
+// package main
 
-import (
-	"fmt"
-	"os"
-	
-	
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-)
+// import (
+// 	"encoding/json"
+// 	"fmt"
+// 	"os"
 
-type model struct {
-	progressBar progress.Model
-	percent     float64
-	textInput   textinput.Model
-}
+// 	"github.com/charmbracelet/bubbles/progress"
+// 	"github.com/charmbracelet/bubbles/textinput"
+// 	tea "github.com/charmbracelet/bubbletea"
+// 	"github.com/charmbracelet/lipgloss"
+// 	"github.com/go-resty/resty/v2"
+// )
 
-func (m model) Init() tea.Cmd {
-	return nil
-}
+// type GPT3Response struct {
+// 	Choices []struct {
+// 		Text string `json:"text"`
+// 	} `json:"choices"`
+// }
 
-func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
+// type model struct {
+// 	progressBar  progress.Model
+// 	percent      float64
+// 	textInput    textinput.Model
+// 	gpt3Response string
+// }
 
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q":
-			return m, tea.Quit
-		}
-	}
+// func getGPT3Response(prompt string) (string, error) {
+// 	client := resty.New()
+// 	apiKey := os.Getenv("API_KEY") // Make sure to set this environment variable
 
-	// Update the text input
-	m.textInput, cmd = m.textInput.Update(msg)
+// 	resp, err := client.R().
+// 		SetHeader("Authorization", "Bearer "+apiKey).
+// 		SetBody(map[string]interface{}{"prompt": prompt, "max_tokens": 50}).
+// 		Post("https://api.openai.com/v1/engines/davinci-codex/completions")
 
-	return m, cmd
-}
+// 	if err != nil {
+// 		return "", err
+// 	}
 
-func (m *model) View() string {
-	// Style the text input
-	inputView := m.textInput.View()
+// 	var gpt3Resp GPT3Response
+// 	err = json.Unmarshal(resp.Body(), &gpt3Resp)
+// 	if err != nil {
+// 		return "", err
+// 	}
 
-	// Style the box
-	boxStyle := lipgloss.NewStyle().
-		Padding(1).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("205")).
-		Background(lipgloss.Color("15"))
+// 	return gpt3Resp.Choices[0].Text, nil
+// }
 
-	catStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("226"))
+// func (m model) Init() tea.Cmd {
+// 	return nil
+// }
 
-	renderedProgress := m.progressBar.View()
+// func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// 	var cmd tea.Cmd
 
-	ui := []string{
-		boxStyle.Render(
-			fmt.Sprintf("⚡ %s 🐱\n%s\n%s",
-				catStyle.Render("Sox: Hey there! What can I do for you?"),
-				renderedProgress,
-				inputView,
-			),
-		),
-	}
+// 	switch msg := msg.(type) {
+// 	case tea.KeyMsg:
+// 		switch msg.String() {
+// 		case "q":
+// 			return m, tea.Quit
+// 		case "Enter":
+// 			resp, err := getGPT3Response(m.textInput.Value())
+// 			if err != nil {
+// 				// Handle error
+// 			}
+// 			m.gpt3Response = resp
+// 		}
+// 	}
 
-	return "\n" + lipgloss.JoinVertical(lipgloss.Center, ui...)
-}
+// 	// Update the text input
+// 	m.textInput, cmd = m.textInput.Update(msg)
 
-func main() {
-	p := progress.NewModel(progress.WithDefaultGradient())
-	input := textinput.NewModel()
-	input.Placeholder = "Type here..."
-	input.Focus()
-	input.CharLimit = 156
-	input.Width = 20
+// 	return m, cmd
+// }
 
-	m := model{
-		progressBar: p,
-		textInput:   input,
-	}
+// func (m *model) View() string {
+// 	// Style the text input
+// 	inputView := m.textInput.View()
 
-	program := tea.NewProgram(&m)
-	if err := program.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting app:\n%s", err)
-	}
-}
+// 	// Style the box
+// 	boxStyle := lipgloss.NewStyle().
+// 		Padding(1).
+// 		Border(lipgloss.RoundedBorder()).
+// 		BorderForeground(lipgloss.Color("205")).
+// 		Background(lipgloss.Color("15"))
+
+// 	catStyle := lipgloss.NewStyle().
+// 		Foreground(lipgloss.Color("226"))
+
+// 	renderedProgress := m.progressBar.View()
+
+// 	var content string
+// 	if m.gpt3Response == "" {
+// 		// Show loading bar
+// 		content = renderedProgress
+// 	} else {
+// 		// Show GPT-3 response
+// 		content = m.gpt3Response
+// 	}
+
+// 	ui := []string{
+// 		boxStyle.Render(
+// 			fmt.Sprintf("⚡ %s 🐱\n%s\n%s",
+// 				catStyle.Render("Sox: Hey there! What can I do for you?"),
+// 				content,
+// 				inputView,
+// 			),
+// 		),
+// 	}
+
+// 	return "\n" + lipgloss.JoinVertical(lipgloss.Center, ui...)
+// }
+
+// func main() {
+// 	p := progress.NewModel(progress.WithDefaultGradient())
+// 	input := textinput.NewModel()
+// 	input.Placeholder = "Type here..."
+// 	input.Focus()
+// 	input.CharLimit = 156
+// 	input.Width = 20
+
+// 	m := model{
+// 		progressBar: p,
+// 		textInput:   input,
+// 	}
+
+// 	program := tea.NewProgram(&m)
+// 	if err := program.Start(); err != nil {
+// 		fmt.Fprintf(os.Stderr, "Error starting app:\n%s", err)
+// 	}
+// }
