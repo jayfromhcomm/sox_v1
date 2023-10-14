@@ -1,36 +1,85 @@
+// The above code is a Go program that creates a command-line interface (CLI) for a personal assistant
+// called "Sox". It uses the GPT-3 API to generate responses to user prompts and displays them in the
+// CLI interface. The program also includes various UI elements such as a header, sidebar, tabs, chat
+// area, content viewport, progress bar, and help keys.
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/joho/godotenv"
 )
 
-type model struct{}
+func init() {
+	godotenv.Load() // Load .env file
+}
+
+type model struct {
+	gpt3Response string // field storing gpt response
+}
 
 func (m model) Init() tea.Cmd {
 	return nil
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q":
-			return m, tea.Quit
-		case "i":
-			// "To Infinity and Beyond!" - Trigger some action
-			fmt.Println("Launching...")
-		case "s":
-			// "Star Command, Come in Star Command" - Maybe search?
-			fmt.Println("Searching...")
+		switch msg.Type {
+		case tea.KeyEnter: // Handle 'Enter' key
+			go m.callGPT3API("Your prompt here") // Replace with actual user input
+		case tea.KeyRunes:
+			switch msg.Runes[0] {
+			case 'q':
+				return m, tea.Quit
+			case 's':
+				fmt.Println("Star Command, Come in Star Command") // Replace with actual functionality
+			case 'i':
+				fmt.Println("To Infinity and Beyond!") // Replace with actual functionality
+			}
 		}
 	}
 	return m, nil
 }
 
+// New function to make the GPT-3 API call
+func (m *model) callGPT3API(prompt string) {
+	apiKey := os.Getenv("API_KEY") // Read from .env file
+	url := "https://api.openai.com/v1/engines/davinci-codex/completions"
+
+	payload := map[string]string{
+		"prompt":     prompt,
+		"max_tokens": "50",
+	}
+	jsonPayload, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonPayload))
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		// Handle error
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := ioutil.ReadAll(resp.Body)
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+
+	m.gpt3Response = result["choices"].([]interface{})[0].(map[string]interface{})["text"].(string)
+}
+
+// View style
 func (m model) View() string {
 	// Header
 	headerStyle := lipgloss.NewStyle().
@@ -70,11 +119,15 @@ func (m model) View() string {
 	tabRow := lipgloss.JoinHorizontal(lipgloss.Center, tabs...)
 
 	// Chat Area
-	chatStyle := lipgloss.NewStyle().
+	// chatStyle := lipgloss.NewStyle().
+	// 	Padding(1).
+	// 	Border(lipgloss.NormalBorder()).
+	// 	BorderForeground(lipgloss.Color("205"))
+	chatArea := lipgloss.NewStyle().
 		Padding(1).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("205"))
-	chatArea := chatStyle.Render("Sox: Hey there! What can I do for you?")
+		BorderForeground(lipgloss.Color("205")).
+		Render("Sox: " + m.gpt3Response) // Modified line
 
 	// Content Viewport
 	viewportStyle := lipgloss.NewStyle().
@@ -104,8 +157,12 @@ func (m model) View() string {
 	return "\n" + lipgloss.JoinVertical(lipgloss.Left, ui...)
 }
 
+func Padding(i int) {
+	panic("unimplemented")
+}
+
 func main() {
-	p := tea.NewProgram(model{})
+	p := tea.NewProgram(&model{})
 	if err := p.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting app:\n%s", err)
 	}
