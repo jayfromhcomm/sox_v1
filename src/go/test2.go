@@ -1,7 +1,3 @@
-// The above code is a Go program that creates a command-line interface (CLI) for a personal assistant
-// called "Sox". It uses the GPT-3 API to generate responses to user prompts and displays them in the
-// CLI interface. The program also includes various UI elements such as a header, sidebar, tabs, chat
-// area, content viewport, progress bar, and help keys.
 package main
 
 import (
@@ -11,75 +7,157 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/joho/godotenv"
 )
 
-func init() {
-	godotenv.Load() // Load .env file
-}
+type gpt3ResponseMsg string
+
+type tickMsg time.Time
 
 type model struct {
-	gpt3Response string // field storing gpt response
+	gpt3Response string // field storing GPT-3 response
+	userInput    string // field storing user input
+	phase        int    // for animation
+	activeTab    int    // for tabs
+}
+
+// Function to create a command that sends a gpt3ResponseMsg back to the main loop
+func sendGpt3ResponseMsg(msg string) tea.Cmd {
+	return func() tea.Msg {
+		return gpt3ResponseMsg(msg)
+	}
+}
+
+func init() {
+	if err := godotenv.Load(); err != nil {
+		fmt.Println("Error loading .env file:", err)
+	}
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return tickCmd
+}
+
+func tickCmd() tea.Msg {
+	time.Sleep(500 * time.Millisecond)
+	return tickMsg(time.Now())
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if msg.String() == "q" || msg.Type == tea.KeyEsc {
+			return m, tea.Quit // Quit the application
+		}
 		switch msg.Type {
-		case tea.KeyEnter: // Handle 'Enter' key
-			go m.callGPT3API("Your prompt here") // Replace with actual user input
+		case tea.KeyEnter:
+			if strings.HasPrefix(m.userInput, "meow ") {
+				specialCommand := strings.TrimPrefix(m.userInput, "meow ")
+				switch specialCommand {
+				case "s":
+					fmt.Println("Star Command, Come in Star Command")
+				case "buzz":
+					fmt.Println("To Infinity and Beyond!")
+				}
+			} else {
+				return m, m.callGPT3API(m.userInput)
+			}
+			m.userInput = "" // Clear the input after sending
 		case tea.KeyRunes:
-			switch msg.Runes[0] {
-			case 'q':
-				return m, tea.Quit
-			case 's':
-				fmt.Println("Star Command, Come in Star Command") // Replace with actual functionality
-			case 'i':
-				fmt.Println("To Infinity and Beyond!") // Replace with actual functionality
+			m.userInput += string(msg.Runes[0])
+		case tea.KeySpace:
+			m.userInput += " "
+		case tea.KeyBackspace:
+			if len(m.userInput) > 0 {
+				m.userInput = m.userInput[:len(m.userInput)-1]
 			}
 		}
+	case tickMsg:
+		m.phase++
+		if m.phase > 3 {
+			m.phase = 0
+		}
+	case gpt3ResponseMsg:
+		m.gpt3Response = string(msg)
+		fmt.Println("Updated gpt3Response:", m.gpt3Response)
+		// Insert the new conversation into MongoDB
+		InsertConversation(Conversation{
+			UserInput: m.userInput,
+			BotOutput: m.gpt3Response,
+			Timestamp: time.Now(),
+		})
+		return m, nil
 	}
 	return m, nil
 }
 
-// New function to make the GPT-3 API call
-func (m *model) callGPT3API(prompt string) {
-	apiKey := os.Getenv("API_KEY") // Read from .env file
-	url := "https://api.openai.com/v1/engines/davinci-codex/completions"
+func (m *model) callGPT3API(prompt string) tea.Cmd {
+	return func() tea.Msg {
+		apiKey := os.Getenv("API_KEY")
+		if apiKey == "" {
+			return gpt3ResponseMsg("API key is empty")
+		}
 
-	payload := map[string]string{
-		"prompt":     prompt,
-		"max_tokens": "50",
+		url := "https://api.openai.com/v1/chat/completions" // Corrected URL
+		messages := []map[string]string{
+			{
+				"role":    "user",
+				"content": prompt,
+			},
+		}
+		payload := map[string]interface{}{
+			"model":    "gpt-3.5-turbo", // specify the model here
+			"messages": messages,
+		}
+		jsonPayload, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonPayload))
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return gpt3ResponseMsg("API call failed: " + err.Error())
+		}
+		defer resp.Body.Close()
+
+		body, _ := ioutil.ReadAll(resp.Body)
+		fmt.Println("API Response:", string(body)) // Debug print
+
+		var result map[string]interface{}
+		if err := json.Unmarshal(body, &result); err != nil {
+			return gpt3ResponseMsg("Error unmarshalling response: " + err.Error())
+		}
+
+		if choices, ok := result["choices"].([]interface{}); ok {
+			if len(choices) > 0 {
+				if choice, ok := choices[0].(map[string]interface{}); ok {
+					if message, ok := choice["message"].(map[string]interface{}); ok {
+						if content, ok := message["content"].(string); ok {
+							fmt.Println("Received text from API:", content) // Debug print
+							return gpt3ResponseMsg(content)
+						}
+					}
+				}
+			}
+		} else {
+			return gpt3ResponseMsg("Unexpected API response format")
+		}
+		return gpt3ResponseMsg("No response")
 	}
-	jsonPayload, _ := json.Marshal(payload)
-
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonPayload))
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		// Handle error
-		return
-	}
-	defer resp.Body.Close()
-
-	body, _ := ioutil.ReadAll(resp.Body)
-	var result map[string]interface{}
-	json.Unmarshal(body, &result)
-
-	m.gpt3Response = result["choices"].([]interface{})[0].(map[string]interface{})["text"].(string)
 }
 
-// View style
+func cmd(gpt3ResponseMsg gpt3ResponseMsg) {
+	panic("unimplemented")
+}
+
 func (m model) View() string {
 	// Header
 	headerStyle := lipgloss.NewStyle().
@@ -87,83 +165,77 @@ func (m model) View() string {
 		Padding(1)
 	header := headerStyle.Render("🐱 Sox: StarCommand Personal Assistant")
 
-	// Sidebar with Search and History
+	// Sidebar
+	sidebarItems := []string{"Search", "History", "Settings"}
 	sidebarStyle := lipgloss.NewStyle().
 		Padding(1).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("240"))
-	sidebar := sidebarStyle.Render("Search:\n\nHistory:")
-
-	// Description and Graphic
-	descStyle := lipgloss.NewStyle().
-		Padding(1)
-	desc := descStyle.Render("Your friendly assistant.")
-	graphic := descStyle.Render("Animated Graphic Here")
-
-	// Help Keys
-	helpKeysStyle := lipgloss.NewStyle().
-		Padding(1)
-	helpKeys := helpKeysStyle.Render("Help: q to quit | i for Infinity | s for Star Command")
+	sidebar := sidebarStyle.Render(lipgloss.JoinVertical(lipgloss.Left, sidebarItems...))
 
 	// Tabs
-	activeTabStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	inactiveTabStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	tabStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("205"))
+
 	tabs := []string{"Chat", "Settings", "About"}
 	for i, tab := range tabs {
-		if i == 0 {
-			tabs[i] = activeTabStyle.Render(tab)
+		if i == m.activeTab {
+			tabs[i] = tabStyle.Foreground(lipgloss.Color("205")).Render(tab)
 		} else {
-			tabs[i] = inactiveTabStyle.Render(tab)
+			tabs[i] = tabStyle.Foreground(lipgloss.Color("240")).Render(tab)
 		}
 	}
 	tabRow := lipgloss.JoinHorizontal(lipgloss.Center, tabs...)
 
-	// Chat Area
-	// chatStyle := lipgloss.NewStyle().
-	// 	Padding(1).
-	// 	Border(lipgloss.NormalBorder()).
-	// 	BorderForeground(lipgloss.Color("205"))
-	chatArea := lipgloss.NewStyle().
+	// Chat History and Input
+	chatHistoryStyle := lipgloss.NewStyle().
+		Width(50).
+		Height(15).
 		Padding(1).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("205")).
-		Render("Sox: " + m.gpt3Response) // Modified line
+		BorderForeground(lipgloss.Color("205"))
 
-	// Content Viewport
-	viewportStyle := lipgloss.NewStyle().
+	chatInputStyle := lipgloss.NewStyle().
+		Width(50).
 		Padding(1).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240"))
-	viewport := viewportStyle.Render("Content goes here.")
+		BorderForeground(lipgloss.Color("205"))
 
-	// Progress Bar
-	progressStyle := lipgloss.NewStyle().
-		Padding(1).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240"))
-	progressBar := progressStyle.Render("Progress Bar Here")
+	// Render GPT-3 response as Markdown
+	r, _ := glamour.NewTermRenderer(
+		glamour.WithStyles(glamour.ASCIIStyleConfig),
+		glamour.WithWordWrap(100),
+	)
+	gpt3ResponseStyled, _ := r.Render(m.gpt3Response)
+	fmt.Println("gpt3ResponseStyled:", gpt3ResponseStyled) // Debug print
+	userInputStyled, _ := r.Render(m.userInput + "|")      // Added cursor
 
-	// Putting it all together
+	chatHistory := chatHistoryStyle.Render("Sox: " + gpt3ResponseStyled)
+	chatInput := chatInputStyle.Render("You: " + userInputStyled)
+
+	// Combine chat history and input
+	chatArea := lipgloss.JoinVertical(lipgloss.Left, chatHistory, chatInput)
+
+	// Combine all UI components
 	ui := []string{
 		header,
-		lipgloss.JoinHorizontal(lipgloss.Left, desc, graphic),
-		tabRow,
+		tabRow, // Moved tabs to be above the chat area
 		lipgloss.JoinHorizontal(lipgloss.Left, sidebar, chatArea),
-		viewport,
-		helpKeys,
-		progressBar,
 	}
 
 	return "\n" + lipgloss.JoinVertical(lipgloss.Left, ui...)
-}
-
-func Padding(i int) {
-	panic("unimplemented")
 }
 
 func main() {
 	p := tea.NewProgram(&model{})
 	if err := p.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting app:\n%s", err)
+	}
+
+	conversations := GetAllConversations()
+	fmt.Println("Conversations from DB:")
+	for i, conv := range conversations {
+		fmt.Printf("Conversation %d: UserInput: %s, BotOutput: %s, Timestamp: %s\n", i+1, conv.UserInput, conv.BotOutput, conv.Timestamp)
 	}
 }
